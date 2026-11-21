@@ -20,9 +20,9 @@ RUN echo 'SetEnvIf X-Forwarded-Proto "https" HTTPS=on' >> /etc/apache2/apache2.c
     && curl -fSL https://download.moodle.org/download.php/direct/stable405/moodle-latest-405.tgz -o /tmp/moodle.tgz \
     && tar -xzf /tmp/moodle.tgz --strip-components=1 -C /var/www/html/ \
     && rm /tmp/moodle.tgz \
-    && mkdir -p /var/www/moodledata \
+    && mkdir -p /var/www/moodledata/sessions \
     && chown -R www-data:www-data /var/www/html /var/www/moodledata \
-    && chmod -R 755 /var/www/html /var/www/moodledata
+    && chmod -R 777 /var/www/moodledata
 
 RUN cat << 'EOF' > /var/www/html/config.php
 <?php
@@ -49,10 +49,38 @@ $CFG->admin     = 'admin';
 $CFG->directorypermissions = 0777;
 $CFG->sslproxy = true;
 $CFG->getremoteaddrconf = 1;
+$CFG->session_handler_class = '\core\session\database';
 
 require_once(__DIR__ . '/lib/setup.php');
 EOF
 
-RUN chown www-data:www-data /var/www/html/config.php
+RUN cat << 'EOF' > /usr/local/bin/start-moodle.sh
+#!/bin/bash
+set -e
 
-CMD ["bash", "-c", "php -r '$c = @pg_connect(\"host=\" . getenv(\"PGHOST\") . \" port=\" . (getenv(\"PGPORT\") ?: 5432) . \" dbname=\" . getenv(\"PGDATABASE\") . \" user=\" . getenv(\"PGUSER\") . \" password=\" . getenv(\"PGPASSWORD\")); if ($c) { @pg_query($c, \"DELETE FROM mdl_config WHERE name = \" . chr(39) . \"install_ip\" . chr(39)); }' && apache2-foreground"]
+mkdir -p /var/www/moodledata/sessions
+chown -R www-data:www-data /var/www/moodledata
+chmod -R 777 /var/www/moodledata
+
+INSTALLED=$(php -r '
+$c = @pg_connect("host=" . getenv("PGHOST") . " port=" . (getenv("PGPORT") ?: 5432) . " dbname=" . getenv("PGDATABASE") . " user=" . getenv("PGUSER") . " password=" . getenv("PGPASSWORD"));
+if (!$c) { echo "no_db"; exit; }
+$r = @pg_query($c, "SELECT id FROM mdl_user WHERE username = '\''admin'\''");
+echo ($r && pg_num_rows($r) > 0) ? "yes" : "no";
+')
+
+if [ "$INSTALLED" = "no" ]; then
+  echo "Limpiando tablas incompletas e instalando Moodle por CLI..."
+  php -r '
+  $c = pg_connect("host=" . getenv("PGHOST") . " port=" . (getenv("PGPORT") ?: 5432) . " dbname=" . getenv("PGDATABASE") . " user=" . getenv("PGUSER") . " password=" . getenv("PGPASSWORD"));
+  pg_query($c, "DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
+  '
+  su -s /bin/bash www-data -c "php /var/www/html/admin/cli/install_database.php --lang=es --adminuser=admin --adminpass='Admin3DPrints#2026' --adminemail='3d.prints.f0@gmail.com' --fullname='3D-Prints' --shortname='3D-Prints' --agree-license"
+fi
+
+exec apache2-foreground
+EOF
+
+RUN chmod +x /usr/local/bin/start-moodle.sh
+
+CMD ["/usr/local/bin/start-moodle.sh"]
