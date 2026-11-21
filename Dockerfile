@@ -23,3 +23,36 @@ RUN echo 'SetEnvIf X-Forwarded-Proto "https" HTTPS=on' >> /etc/apache2/apache2.c
     && mkdir -p /var/www/moodledata \
     && chown -R www-data:www-data /var/www/html /var/www/moodledata \
     && chmod -R 755 /var/www/html /var/www/moodledata
+
+RUN cat << 'EOF' > /var/www/html/config.php
+<?php
+unset($CFG);
+global $CFG;
+$CFG = new stdClass();
+
+$CFG->dbtype    = 'pgsql';
+$CFG->dblibrary = 'native';
+$CFG->dbhost    = getenv('PGHOST');
+$CFG->dbname    = getenv('PGDATABASE');
+$CFG->dbuser    = getenv('PGUSER');
+$CFG->dbpass    = getenv('PGPASSWORD');
+$CFG->prefix    = 'mdl_';
+$CFG->dboptions = array (
+  'dbpersist' => 0,
+  'dbport' => getenv('PGPORT') ?: 5432,
+  'dbsocket' => '',
+);
+
+$CFG->wwwroot   = 'https://' . getenv('RAILWAY_PUBLIC_DOMAIN');
+$CFG->dataroot  = '/var/www/moodledata';
+$CFG->admin     = 'admin';
+$CFG->directorypermissions = 0777;
+$CFG->sslproxy = true;
+$CFG->getremoteaddrconf = 1;
+
+require_once(__DIR__ . '/lib/setup.php');
+EOF
+
+RUN chown www-data:www-data /var/www/html/config.php
+
+CMD ["bash", "-c", "php -r '$c = @pg_connect(\"host=\" . getenv(\"PGHOST\") . \" port=\" . (getenv(\"PGPORT\") ?: 5432) . \" dbname=\" . getenv(\"PGDATABASE\") . \" user=\" . getenv(\"PGUSER\") . \" password=\" . getenv(\"PGPASSWORD\")); if ($c) { @pg_query($c, \"DELETE FROM mdl_config WHERE name = \" . chr(39) . \"install_ip\" . chr(39)); }' && apache2-foreground"]
