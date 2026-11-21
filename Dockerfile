@@ -65,17 +65,20 @@ chmod -R 777 /var/www/moodledata
 INSTALLED=$(php -r '
 $c = @pg_connect("host=" . getenv("PGHOST") . " port=" . (getenv("PGPORT") ?: 5432) . " dbname=" . getenv("PGDATABASE") . " user=" . getenv("PGUSER") . " password=" . getenv("PGPASSWORD"));
 if (!$c) { echo "no_db"; exit; }
-$r = @pg_query($c, "SELECT id FROM mdl_user WHERE username = '\''admin'\''");
+$r = @pg_query($c, "SELECT id FROM mdl_user WHERE username = '\''admin'\'' AND email = '\''3d.prints.f0@gmail.com'\''");
 echo ($r && pg_num_rows($r) > 0) ? "yes" : "no";
 ')
 
+echo "Estado actual de Moodle: $INSTALLED"
+
 if [ "$INSTALLED" = "no" ]; then
-  echo "Limpiando tablas incompletas e instalando Moodle por CLI..."
+  echo "Limpiando instalacion incompleta e instalando Moodle 4.5..."
   php -r '
   $c = pg_connect("host=" . getenv("PGHOST") . " port=" . (getenv("PGPORT") ?: 5432) . " dbname=" . getenv("PGDATABASE") . " user=" . getenv("PGUSER") . " password=" . getenv("PGPASSWORD"));
   pg_query($c, "DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
   '
   su -s /bin/bash www-data -c "php /var/www/html/admin/cli/install_database.php --lang=es --adminuser=admin --adminpass='Admin3DPrints#2026' --adminemail='3d.prints.f0@gmail.com' --fullname='3D-Prints' --shortname='3D-Prints' --agree-license"
+  echo "Instalacion de Moodle finalizada con exito."
 fi
 
 exec apache2-foreground
